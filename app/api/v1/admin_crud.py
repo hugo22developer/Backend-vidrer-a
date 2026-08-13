@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -48,8 +49,13 @@ from app.schemas.entities import (
     TipoVidrioRead,
 )
 from app.services.cache import invalidate_dashboard_metrics
+from app.services.quote_pdf import render_quote_pdf
 from app.services.quotes import build_quote
 from app.tasks.jobs import send_quote_email
+from fastapi import UploadFile, File
+import io
+import anyio
+import cloudinary.uploader
 
 router = APIRouter(tags=["admin"])
 
@@ -167,6 +173,24 @@ async def update_product(product_id: str, payload: ProductUpdate, session: Async
     await session.refresh(product)
     await invalidate_dashboard_metrics()
     return product
+
+
+
+@router.post("/uploads", dependencies=[Depends(require_permission(Permission.CONTENT_WRITE))])
+async def upload_image(file: UploadFile = File(...)):
+    """Upload image to Cloudinary and return the secure URL."""
+    content = await file.read()
+
+    def _upload():
+        # cloudinary.uploader.upload accepts file path or file-like; pass BytesIO
+        return cloudinary.uploader.upload(io.BytesIO(content), folder="products")
+
+    try:
+        result = await anyio.to_thread.run_sync(_upload)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Upload failed: {exc}")
+
+    return {"url": result.get("secure_url")}
 
 
 @router.delete("/products/{product_id}", status_code=204, dependencies=[Depends(require_permission(Permission.CONTENT_DELETE))])
@@ -291,7 +315,6 @@ async def quote_config(session: AsyncSession = Depends(get_session)):
 @router.post("/quotes", response_model=QuoteRead, dependencies=[Depends(require_permission(Permission.SALES_WRITE))])
 async def create_quote(payload: QuoteCreate, user: AdminUser = Depends(require_permission(Permission.SALES_WRITE)), session: AsyncSession = Depends(get_session)):
     quote = await build_quote(session, payload, user.id)
-    session.add(quote)
     await session.commit()
     result = await session.execute(select(Quote).options(selectinload(Quote.items)).where(Quote.id == quote.id))
     created = result.scalar_one()
@@ -312,4 +335,22 @@ async def get_quote(quote_id: str, session: AsyncSession = Depends(get_session))
     if not quote:
         raise HTTPException(404, "Cotización no encontrada")
     return quote
+
+
+@router.get("/quotes/{quote_id}/pdf", dependencies=[Depends(require_permission(Permission.SALES_WRITE))])
+async def get_quote_pdf(quote_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(select(Quote).options(selectinload(Quote.items)).where(Quote.id == quote_id))
+    quote = result.scalar_one_or_none()
+    if not quote:
+        raise HTTPException(404, "Cotización no encontrada")
+    try:
+        pdf_bytes = await anyio.to_thread.run_sync(render_quote_pdf, quote)
+    except Exception as exc:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"No se pudo generar el PDF: {exc}") from exc
+    filename = f"{quote.folio}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 

@@ -68,13 +68,13 @@ async def build_quote(session: AsyncSession, payload: QuoteCreate, user_id: str)
         status="sent",
         created_by_user_id=user_id,
     )
-    session.add(quote)
+    items: list[QuoteItem] = []
     subtotal = Decimal("0")
     for payload_item in payload.items:
         priced = await calc_unit_price(session, payload_item)
         item_subtotal = priced["unit_price"] * payload_item.quantity
         subtotal += item_subtotal
-        quote.items.append(
+        items.append(
             QuoteItem(
                 category_id=payload_item.category_id,
                 category_label=payload_item.category_label,
@@ -96,6 +96,8 @@ async def build_quote(session: AsyncSession, payload: QuoteCreate, user_id: str)
                 subtotal=item_subtotal,
             )
         )
+    quote.items = items
+    session.add(quote)
     iva = round_money(subtotal * (payload.iva_percent / Decimal("100")))
     quote.subtotal = subtotal
     quote.iva = iva
