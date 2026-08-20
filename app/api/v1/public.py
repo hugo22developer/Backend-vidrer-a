@@ -6,7 +6,6 @@ from app.api.deps import contact_rate_limit
 from app.db.session import get_session
 from app.models.entities import BlogPost, Category, ContactRequest, Product
 from app.schemas.entities import BlogPostRead, CategoryRead, ContactRequestCreate, ContactRequestRead, ProductRead
-from app.tasks.jobs import send_contact_email
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -43,6 +42,10 @@ async def create_contact(payload: ContactRequestCreate, session: AsyncSession = 
     await session.commit()
     await session.refresh(contact)
     if contact.email:
-        send_contact_email.delay(contact.id, contact.email)
+        try:
+            from app.tasks.jobs import send_contact_email
+            send_contact_email.delay(contact.id, contact.email)
+        except Exception:
+            pass
     return contact
 

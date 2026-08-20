@@ -51,7 +51,6 @@ from app.schemas.entities import (
 from app.services.cache import invalidate_dashboard_metrics
 from app.services.quote_pdf import render_quote_pdf
 from app.services.quotes import build_quote
-from app.tasks.jobs import send_quote_email
 from fastapi import UploadFile, File
 import io
 import anyio
@@ -319,7 +318,11 @@ async def create_quote(payload: QuoteCreate, user: AdminUser = Depends(require_p
     result = await session.execute(select(Quote).options(selectinload(Quote.items)).where(Quote.id == quote.id))
     created = result.scalar_one()
     await invalidate_dashboard_metrics()
-    send_quote_email.delay(created.id, created.client_email)
+    try:
+        from app.tasks.jobs import send_quote_email
+        send_quote_email.delay(created.id, created.client_email)
+    except Exception:
+        pass
     return created
 
 

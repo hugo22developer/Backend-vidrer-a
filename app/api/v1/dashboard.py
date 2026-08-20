@@ -18,9 +18,10 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/metrics", response_model=DashboardMetrics, dependencies=[Depends(require_permission(Permission.USERS_READ))])
 async def metrics(session: AsyncSession = Depends(get_session)):
-    cached = await redis_client.get(DASHBOARD_KEY)
-    if cached:
-        return json.loads(cached)
+    if redis_client is not None:
+        cached = await redis_client.get(DASHBOARD_KEY)
+        if cached:
+            return json.loads(cached)
 
     total_quotes = await session.scalar(select(func.count(Quote.id))) or 0
     today = datetime.now(UTC).date()
@@ -56,6 +57,7 @@ async def metrics(session: AsyncSession = Depends(get_session)):
         "topProduct": {"title": top_product_obj.title, "consultations": top_product_obj.consultations} if top_product_obj else None,
         "topPost": {"title": top_post_obj.title, "views": top_post_obj.views} if top_post_obj else None,
     }
-    await redis_client.setex(DASHBOARD_KEY, 60, json.dumps(payload))
+    if redis_client is not None:
+        await redis_client.setex(DASHBOARD_KEY, 60, json.dumps(payload))
     return payload
 

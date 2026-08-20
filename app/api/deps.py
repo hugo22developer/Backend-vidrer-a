@@ -13,6 +13,8 @@ from app.models.entities import AdminUser
 
 
 async def rate_limit(request: Request, key_prefix: str, limit: int, window_seconds: int) -> None:
+    if redis_client is None:
+        return
     client = request.client.host if request.client else "unknown"
     key = f"rl:{key_prefix}:{client}"
     current = await redis_client.incr(key)
