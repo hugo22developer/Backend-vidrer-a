@@ -107,6 +107,7 @@ class ProductBase(CamelModel):
     description: str = Field(min_length=1)
     image: str = Field(min_length=1, max_length=500)
     specs: list[str] = Field(default_factory=list)
+    simulation_prompt: str | None = None
     status: ProductStatus = "draft"
     consultations: int = Field(default=0, ge=0)
 
@@ -122,6 +123,7 @@ class ProductUpdate(CamelModel):
     description: str | None = Field(default=None, min_length=1)
     image: str | None = Field(default=None, min_length=1, max_length=500)
     specs: list[str] | None = None
+    simulation_prompt: str | None = None
     status: ProductStatus | None = None
     consultations: int | None = Field(default=None, ge=0)
 

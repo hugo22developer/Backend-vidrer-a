@@ -59,6 +59,22 @@ import cloudinary.uploader
 router = APIRouter(tags=["admin"])
 
 
+def build_simulation_prompt(title: str, description: str, specs: list[str] | None = None) -> str:
+    """Build the inpainting prompt used by the product simulation."""
+    clean_specs = [spec.strip() for spec in specs or [] if spec.strip()]
+    specifications = f" Especificaciones: {', '.join(clean_specs)}." if clean_specs else ""
+    product_details = f"{title.strip()}. {description.strip().rstrip('.')}.{specifications}"
+
+    return (
+        "Inserta el siguiente elemento exactamente dentro de la zona delimitada por la máscara blanca: "
+        f"{product_details}\n\n"
+        "Reglas de integración:\n"
+        "- Mantén intactas todas las áreas fuera de la máscara blanca (paredes, piso, iluminación original).\n"
+        "- Adapta las sombras del nuevo objeto a la dirección de la luz natural presente en la imagen del cliente.\n"
+        "- Mantén una perspectiva realista respetando el plano del suelo."
+    )
+
+
 @router.get("/users", response_model=list[AdminUserRead], dependencies=[Depends(require_permission(Permission.USERS_READ))])
 async def list_users(session: AsyncSession = Depends(get_session)):
     return (await session.execute(select(AdminUser).order_by(AdminUser.created_at.desc()))).scalars().all()
@@ -153,6 +169,7 @@ async def create_product(payload: ProductBase, session: AsyncSession = Depends(g
     data = payload.model_dump(exclude={"id"})
     if payload.id:
         data["id"] = payload.id
+    data["simulation_prompt"] = build_simulation_prompt(payload.title, payload.description, payload.specs)
     product = Product(**data)
     session.add(product)
     await session.commit()
@@ -166,8 +183,9 @@ async def update_product(product_id: str, payload: ProductUpdate, session: Async
     product = await session.get(Product, product_id)
     if not product:
         raise HTTPException(404, "Producto no encontrado")
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    for key, value in payload.model_dump(exclude_unset=True, exclude={"simulation_prompt"}).items():
         setattr(product, key, value)
+    product.simulation_prompt = build_simulation_prompt(product.title, product.description, product.specs)
     await session.commit()
     await session.refresh(product)
     await invalidate_dashboard_metrics()

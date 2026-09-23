@@ -124,6 +124,7 @@ class Product(Base):
     description: Mapped[str] = mapped_column(Text, nullable=False)
     image: Mapped[str] = mapped_column(String(500), nullable=False)
     specs: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    simulation_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[ProductStatusEnum] = mapped_column( Enum(ProductStatusEnum, name="product_status_enum", values_callable=_use_values), nullable=False, )
     consultations: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
