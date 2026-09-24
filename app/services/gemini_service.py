@@ -11,7 +11,7 @@ from google.genai import types
 from app.core.config import settings
 
 GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
-MAX_IMAGE_BYTES = 8 * 1024 * 1024
+MAX_IMAGE_BYTES = 10 * 1024 * 1024
 MAX_IMAGE_DIMENSION = 1024
 MAX_IMAGE_PIXELS = MAX_IMAGE_DIMENSION * MAX_IMAGE_DIMENSION
 
@@ -41,10 +41,10 @@ def _optimize_image(image_bytes: bytes, *, mask: bool) -> tuple[bytes, str]:
 
         with BytesIO() as output:
             if mask:
-                image.convert("L").save(output, format="PNG", optimize=True)
-                mime_type = "image/png"
+                image.convert("L").save(output, format="JPEG", quality=75, optimize=True)
+                mime_type = "image/jpeg"
             else:
-                image.convert("RGB").save(output, format="JPEG", quality=82, optimize=True, progressive=True)
+                image.convert("RGB").save(output, format="JPEG", quality=75, optimize=True, progressive=True)
                 mime_type = "image/jpeg"
             return output.getvalue(), mime_type
 

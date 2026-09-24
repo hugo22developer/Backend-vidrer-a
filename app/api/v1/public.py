@@ -28,13 +28,13 @@ def _decode_base64_image(value: str, field_name: str) -> bytes:
     if "," in raw_value and raw_value.lower().startswith("data:"):
         raw_value = raw_value.split(",", 1)[1]
     if len(raw_value) > MAX_IMAGE_BYTES * 4 // 3 + 4:
-        raise HTTPException(status_code=413, detail=f"{field_name} supera el limite de 8 MB.")
+        raise HTTPException(status_code=413, detail=f"{field_name} supera el limite de 10 MB.")
     try:
         decoded = base64.b64decode(raw_value, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"{field_name} no es una imagen base64 valida.") from exc
     if len(decoded) > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail=f"{field_name} supera el limite de 8 MB.")
+        raise HTTPException(status_code=413, detail=f"{field_name} supera el limite de 10 MB.")
     return decoded
 
 
