@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     mailhog_port: int = 1025
     seed_admin_email: str = "hugo@elcercho.mx"
     seed_admin_password: str = "Admin123!"
+    gemini_api_key: str = ""
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -42,4 +43,3 @@ def get_settings() -> Settings:
 
 
 settings = get_settings()
-

@@ -1,5 +1,8 @@
 import os
+from io import BytesIO
+
 import cloudinary
+import cloudinary.uploader
 
 
 def init_cloudinary() -> None:
@@ -19,3 +22,15 @@ def init_cloudinary() -> None:
 
 # Initialize on import
 init_cloudinary()
+
+
+def upload_image_bytes(image_bytes: bytes, *, folder: str = "cercho/simulations") -> str:
+    result = cloudinary.uploader.upload(
+        BytesIO(image_bytes),
+        folder=folder,
+        resource_type="image",
+    )
+    secure_url = result.get("secure_url")
+    if not secure_url:
+        raise RuntimeError("Cloudinary no devolvio una URL segura.")
+    return str(secure_url)

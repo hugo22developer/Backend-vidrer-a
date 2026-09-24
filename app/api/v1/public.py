@@ -1,13 +1,47 @@
-from fastapi import APIRouter, Depends, Query
+import base64
+import binascii
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import contact_rate_limit
+from app.core.cloudinary import upload_image_bytes
 from app.db.session import get_session
 from app.models.entities import BlogPost, Category, ContactRequest, Product
-from app.schemas.entities import BlogPostRead, CategoryRead, ContactRequestCreate, ContactRequestRead, ProductRead
+from app.schemas.entities import (
+    BlogPostRead,
+    CategoryRead,
+    ContactRequestCreate,
+    ContactRequestRead,
+    ProductRead,
+    SimulationRequest,
+    SimulationResponse,
+)
+from app.services.gemini_service import generate_product_simulation
 
 router = APIRouter(prefix="/public", tags=["public"])
+
+
+def _decode_base64_image(value: str, field_name: str) -> bytes:
+    raw_value = value.strip()
+    if "," in raw_value and raw_value.lower().startswith("data:"):
+        raw_value = raw_value.split(",", 1)[1]
+    try:
+        return base64.b64decode(raw_value, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"{field_name} no es una imagen base64 valida.") from exc
+
+
+def _simulation_prompt_for_product(product: Product) -> str:
+    if product.simulation_prompt and product.simulation_prompt.strip():
+        return product.simulation_prompt.strip()
+    specs = ", ".join(product.specs or [])
+    return (
+        f"Instalar {product.title} en la zona marcada. "
+        f"Descripcion: {product.description}. "
+        f"Especificaciones: {specs or 'vidrio y aluminio a medida'}."
+    )
 
 
 @router.get("/categories", response_model=list[CategoryRead])
@@ -21,6 +55,33 @@ async def public_products(category_slug: str | None = Query(default=None), sessi
     if category_slug:
         stmt = stmt.where(Product.category_slug == category_slug)
     return (await session.execute(stmt)).scalars().all()
+
+
+@router.post("/simulate", response_model=SimulationResponse)
+async def simulate_product(payload: SimulationRequest, session: AsyncSession = Depends(get_session)):
+    product = await session.get(Product, payload.product_id)
+    if not product or product.status != "active":
+        raise HTTPException(status_code=404, detail="Producto no encontrado.")
+
+    client_image_bytes = _decode_base64_image(payload.client_image_base64, "client_image_base64")
+    mask_bytes = _decode_base64_image(payload.mask_base64, "mask_base64")
+    prompt = _simulation_prompt_for_product(product)
+
+    try:
+        simulated_image_bytes = await generate_product_simulation(
+            client_image_bytes=client_image_bytes,
+            mask_bytes=mask_bytes,
+            prompt_text=prompt,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="No se pudo generar la simulacion con Gemini.") from exc
+
+    try:
+        simulation_url = upload_image_bytes(simulated_image_bytes, folder="cercho/simulations")
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="No se pudo subir la simulacion a Cloudinary.") from exc
+
+    return SimulationResponse(simulation_url=simulation_url, product_id=product.id)
 
 
 @router.get("/blog", response_model=list[BlogPostRead])
@@ -48,4 +109,3 @@ async def create_contact(payload: ContactRequestCreate, session: AsyncSession = 
         except Exception:
             pass
     return contact
-

@@ -305,6 +305,18 @@ class ContactRequestRead(ContactRequestCreate):
     created_at: datetime
 
 
+class SimulationRequest(CamelModel):
+    product_id: str = Field(min_length=1)
+    client_image_base64: str = Field(min_length=1)
+    mask_base64: str = Field(min_length=1)
+
+
+class SimulationResponse(CamelModel):
+    success: bool = True
+    simulation_url: str
+    product_id: str
+
+
 class DashboardMetrics(CamelModel):
     total_quotes: int
     weekly_activity: list[dict[str, int | str]]
@@ -312,4 +324,3 @@ class DashboardMetrics(CamelModel):
     top_category: dict[str, int | str] | None
     top_product: dict[str, int | str] | None
     top_post: dict[str, int | str] | None
-
