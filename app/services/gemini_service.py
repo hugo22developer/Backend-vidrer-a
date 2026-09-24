@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import gc
+from io import BytesIO
 
+from PIL import Image
 from google import genai
 from google.genai import types
 
@@ -20,6 +23,21 @@ def _build_prompt(prompt_text: str) -> str:
     )
 
 
+def _optimize_image(image_bytes: bytes, *, mask: bool) -> tuple[bytes, str]:
+    with BytesIO(image_bytes) as input_buffer, Image.open(input_buffer) as image:
+        image.load()
+        image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+
+        with BytesIO() as output:
+            if mask:
+                image.convert("L").save(output, format="PNG", optimize=True)
+                mime_type = "image/png"
+            else:
+                image.convert("RGB").save(output, format="JPEG", quality=82, optimize=True, progressive=True)
+                mime_type = "image/jpeg"
+            return output.getvalue(), mime_type
+
+
 def _generate_product_simulation_sync(
     client_image_bytes: bytes,
     mask_bytes: bytes,
@@ -28,24 +46,36 @@ def _generate_product_simulation_sync(
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY no esta configurada.")
 
-    with genai.Client(api_key=settings.gemini_api_key) as client:
-        response = client.models.generate_content(
-            model=GEMINI_IMAGE_MODEL,
-            contents=[
-                types.Part.from_bytes(data=client_image_bytes, mime_type="image/png"),
-                types.Part.from_bytes(data=mask_bytes, mime_type="image/png"),
-                _build_prompt(prompt_text),
-            ],
-            config=types.GenerateContentConfig(
-                response_modalities=["IMAGE"],
-            ),
-        )
+    optimized_client_bytes = None
+    optimized_mask_bytes = None
+    genai_response = None
+    try:
+        optimized_client_bytes, client_mime_type = _optimize_image(client_image_bytes, mask=False)
+        optimized_mask_bytes, mask_mime_type = _optimize_image(mask_bytes, mask=True)
 
-    for part in response.parts or []:
-        if part.inline_data and part.inline_data.data:
-            return bytes(part.inline_data.data)
+        with genai.Client(api_key=settings.gemini_api_key) as client:
+            genai_response = client.models.generate_content(
+                model=GEMINI_IMAGE_MODEL,
+                contents=[
+                    types.Part.from_bytes(data=optimized_client_bytes, mime_type=client_mime_type),
+                    types.Part.from_bytes(data=optimized_mask_bytes, mime_type=mask_mime_type),
+                    _build_prompt(prompt_text),
+                ],
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                ),
+            )
 
-    raise RuntimeError("Gemini no devolvio imagen generada.")
+        for part in genai_response.parts or []:
+            if part.inline_data and part.inline_data.data:
+                return bytes(part.inline_data.data)
+
+        raise RuntimeError("Gemini no devolvio imagen generada.")
+    finally:
+        del optimized_client_bytes
+        del optimized_mask_bytes
+        del genai_response
+        gc.collect()
 
 
 async def generate_product_simulation(
@@ -53,9 +83,14 @@ async def generate_product_simulation(
     mask_bytes: bytes,
     prompt_text: str,
 ) -> bytes:
-    return await asyncio.to_thread(
-        _generate_product_simulation_sync,
-        client_image_bytes,
-        mask_bytes,
-        prompt_text,
-    )
+    try:
+        return await asyncio.to_thread(
+            _generate_product_simulation_sync,
+            client_image_bytes,
+            mask_bytes,
+            prompt_text,
+        )
+    finally:
+        del client_image_bytes
+        del mask_bytes
+        gc.collect()

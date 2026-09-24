@@ -68,20 +68,26 @@ async def simulate_product(payload: SimulationRequest, session: AsyncSession = D
     prompt = _simulation_prompt_for_product(product)
 
     try:
-        simulated_image_bytes = await generate_product_simulation(
-            client_image_bytes=client_image_bytes,
-            mask_bytes=mask_bytes,
-            prompt_text=prompt,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail="No se pudo generar la simulacion con Gemini.") from exc
+        try:
+            simulated_image_bytes = await generate_product_simulation(
+                client_image_bytes=client_image_bytes,
+                mask_bytes=mask_bytes,
+                prompt_text=prompt,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="No se pudo generar la simulacion con Gemini.") from exc
 
-    try:
-        simulation_url = upload_image_bytes(simulated_image_bytes, folder="cercho/simulations")
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail="No se pudo subir la simulacion a Cloudinary.") from exc
+        try:
+            simulation_url = upload_image_bytes(simulated_image_bytes, folder="cercho/simulations")
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail="No se pudo subir la simulacion a Cloudinary.") from exc
 
-    return SimulationResponse(simulation_url=simulation_url, product_id=product.id)
+        return SimulationResponse(simulation_url=simulation_url, product_id=product.id)
+    finally:
+        del client_image_bytes
+        del mask_bytes
+        if "simulated_image_bytes" in locals():
+            del simulated_image_bytes
 
 
 @router.get("/blog", response_model=list[BlogPostRead])
