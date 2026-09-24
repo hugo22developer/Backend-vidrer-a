@@ -19,7 +19,13 @@ class Settings(BaseSettings):
     jwt_issuer: str = "el-cercho-api"
     access_token_expire_minutes: int = 15
     refresh_token_expire_days: int = 30
-    cors_origins: list[str] = []
+    cors_origins: list[str] = [
+        "https://cercho-landing.onrender.com",
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+    ]
     sentry_dsn: str = ""
     email_backend: str = "log"
     email_from: str = "hola@elcercho.mx"
@@ -33,8 +39,12 @@ class Settings(BaseSettings):
     @classmethod
     def split_origins(cls, value: str | list[str]) -> list[str]:
         if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
+            origins = [item.strip() for item in value.split(",") if item.strip()]
+        else:
+            origins = value
+        if "https://cercho-landing.onrender.com" not in origins:
+            origins.append("https://cercho-landing.onrender.com")
+        return origins
 
 
 @lru_cache

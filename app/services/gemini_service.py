@@ -11,6 +11,11 @@ from google.genai import types
 from app.core.config import settings
 
 GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image"
+MAX_IMAGE_BYTES = 8 * 1024 * 1024
+MAX_IMAGE_DIMENSION = 1024
+MAX_IMAGE_PIXELS = MAX_IMAGE_DIMENSION * MAX_IMAGE_DIMENSION
+
+Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 
 def _build_prompt(prompt_text: str) -> str:
@@ -24,9 +29,15 @@ def _build_prompt(prompt_text: str) -> str:
 
 
 def _optimize_image(image_bytes: bytes, *, mask: bool) -> tuple[bytes, str]:
+    if len(image_bytes) > MAX_IMAGE_BYTES:
+        raise ValueError("La imagen supera el limite de 8 MB.")
+
     with BytesIO(image_bytes) as input_buffer, Image.open(input_buffer) as image:
+        width, height = image.size
+        if max(width, height) > MAX_IMAGE_DIMENSION or width * height > MAX_IMAGE_PIXELS:
+            raise ValueError("La imagen supera las dimensiones permitidas.")
         image.load()
-        image.thumbnail((1024, 1024), Image.Resampling.LANCZOS)
+        image.thumbnail((MAX_IMAGE_DIMENSION, MAX_IMAGE_DIMENSION), Image.Resampling.LANCZOS)
 
         with BytesIO() as output:
             if mask:
@@ -65,6 +76,9 @@ def _generate_product_simulation_sync(
                     response_modalities=["IMAGE"],
                 ),
             )
+
+        optimized_client_bytes = None
+        optimized_mask_bytes = None
 
         for part in genai_response.parts or []:
             if part.inline_data and part.inline_data.data:

@@ -18,7 +18,7 @@ from app.schemas.entities import (
     SimulationRequest,
     SimulationResponse,
 )
-from app.services.gemini_service import generate_product_simulation
+from app.services.gemini_service import MAX_IMAGE_BYTES, generate_product_simulation
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -27,10 +27,15 @@ def _decode_base64_image(value: str, field_name: str) -> bytes:
     raw_value = value.strip()
     if "," in raw_value and raw_value.lower().startswith("data:"):
         raw_value = raw_value.split(",", 1)[1]
+    if len(raw_value) > MAX_IMAGE_BYTES * 4 // 3 + 4:
+        raise HTTPException(status_code=413, detail=f"{field_name} supera el limite de 8 MB.")
     try:
-        return base64.b64decode(raw_value, validate=True)
+        decoded = base64.b64decode(raw_value, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"{field_name} no es una imagen base64 valida.") from exc
+    if len(decoded) > MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=413, detail=f"{field_name} supera el limite de 8 MB.")
+    return decoded
 
 
 def _simulation_prompt_for_product(product: Product) -> str:
@@ -74,6 +79,8 @@ async def simulate_product(payload: SimulationRequest, session: AsyncSession = D
                 mask_bytes=mask_bytes,
                 prompt_text=prompt,
             )
+        except ValueError as exc:
+            raise HTTPException(status_code=413, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=500, detail="No se pudo generar la simulacion con Gemini.") from exc
 
