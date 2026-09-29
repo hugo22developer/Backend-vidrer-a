@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import contact_rate_limit
+from app.api.deps import contact_rate_limit, simulate_rate_limit
 from app.core.cloudinary import upload_image_bytes
 from app.db.session import get_session
 from app.models.entities import BlogPost, Category, ContactRequest, Product
@@ -18,7 +18,13 @@ from app.schemas.entities import (
     SimulationRequest,
     SimulationResponse,
 )
-from app.services.gemini_service import MAX_IMAGE_BYTES, generate_product_simulation
+from app.services.gemini_service import (
+    MAX_IMAGE_BYTES,
+    MAX_IMAGE_BYTES_LABEL,
+    ImageTooLargeError,
+    InvalidImageError,
+    generate_product_simulation,
+)
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -28,13 +34,13 @@ def _decode_base64_image(value: str, field_name: str) -> bytes:
     if "," in raw_value and raw_value.lower().startswith("data:"):
         raw_value = raw_value.split(",", 1)[1]
     if len(raw_value) > MAX_IMAGE_BYTES * 4 // 3 + 4:
-        raise HTTPException(status_code=413, detail=f"{field_name} supera el limite de 10 MB.")
+        raise HTTPException(status_code=413, detail=f"{field_name} supera el limite de {MAX_IMAGE_BYTES_LABEL}.")
     try:
         decoded = base64.b64decode(raw_value, validate=True)
     except (binascii.Error, ValueError) as exc:
         raise HTTPException(status_code=400, detail=f"{field_name} no es una imagen base64 valida.") from exc
     if len(decoded) > MAX_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail=f"{field_name} supera el limite de 10 MB.")
+        raise HTTPException(status_code=413, detail=f"{field_name} supera el limite de {MAX_IMAGE_BYTES_LABEL}.")
     return decoded
 
 
@@ -62,7 +68,11 @@ async def public_products(category_slug: str | None = Query(default=None), sessi
     return (await session.execute(stmt)).scalars().all()
 
 
-@router.post("/simulate", response_model=SimulationResponse)
+@router.post(
+    "/simulate",
+    response_model=SimulationResponse,
+    dependencies=[Depends(simulate_rate_limit)],
+)
 async def simulate_product(payload: SimulationRequest, session: AsyncSession = Depends(get_session)):
     product = await session.get(Product, payload.product_id)
     if not product or product.status != "active":
@@ -79,8 +89,10 @@ async def simulate_product(payload: SimulationRequest, session: AsyncSession = D
                 mask_bytes=mask_bytes,
                 prompt_text=prompt,
             )
-        except ValueError as exc:
+        except ImageTooLargeError as exc:
             raise HTTPException(status_code=413, detail=str(exc)) from exc
+        except InvalidImageError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
             raise HTTPException(status_code=500, detail="No se pudo generar la simulacion con Gemini.") from exc
 

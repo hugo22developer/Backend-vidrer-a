@@ -32,6 +32,13 @@ async def contact_rate_limit(request: Request) -> None:
     await rate_limit(request, "public-contact", 5, 300)
 
 
+async def simulate_rate_limit(request: Request) -> None:
+    # Cada simulacion consume cuota de Gemini y mantiene viva una instancia de
+    # 512 MB durante toda la inferencia, asi que el endpoint mas caro de la API
+    # es el que mas expuesto queda a uso abusivo.
+    await rate_limit(request, "public-simulate", 10, 300)
+
+
 async def get_current_user(
     authorization: str | None = Header(default=None),
     session: AsyncSession = Depends(get_session),
