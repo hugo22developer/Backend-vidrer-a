@@ -1,5 +1,6 @@
 import base64
 import binascii
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
@@ -27,6 +28,7 @@ from app.services.gemini_service import (
 )
 
 router = APIRouter(prefix="/public", tags=["public"])
+logger = logging.getLogger(__name__)
 
 
 def _decode_base64_image(value: str, field_name: str) -> bytes:
@@ -94,6 +96,7 @@ async def simulate_product(payload: SimulationRequest, session: AsyncSession = D
         except InvalidImageError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
+            logger.exception("Gemini simulation failed for product_id=%s", product.id)
             raise HTTPException(status_code=500, detail="No se pudo generar la simulacion con Gemini.") from exc
 
         try:

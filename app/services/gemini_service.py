@@ -124,7 +124,7 @@ def _generate_product_simulation_sync(
                     _build_prompt(prompt_text),
                 ],
                 config=types.GenerateContentConfig(
-                    response_modalities=["IMAGE"],
+                    response_modalities=["TEXT", "IMAGE"],
                 ),
             )
 
@@ -135,7 +135,16 @@ def _generate_product_simulation_sync(
             if part.inline_data and part.inline_data.data:
                 return bytes(part.inline_data.data)
 
-        raise RuntimeError("Gemini no devolvio imagen generada.")
+        prompt_feedback = getattr(genai_response, "prompt_feedback", None)
+        block_reason = getattr(prompt_feedback, "block_reason", None)
+        finish_reasons = [
+            getattr(candidate, "finish_reason", None)
+            for candidate in (getattr(genai_response, "candidates", None) or [])
+        ]
+        raise RuntimeError(
+            "Gemini no devolvio imagen; "
+            f"block_reason={block_reason}, finish_reasons={finish_reasons}."
+        )
     finally:
         del optimized_client_bytes
         del optimized_mask_bytes
